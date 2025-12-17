@@ -1,0 +1,35 @@
+Anti-Money Laundering (AML) Policy 2025
+
+1. Purpose
+This policy establishes procedures for monitoring and reporting suspicious financial transactions in accordance with AML regulations.
+
+2. Large Cash Transaction Rule
+- Any single cash transaction greater than $10,000 must be flagged for review.
+- Multiple cash transactions by the same customer within a 24-hour period that total more than $10,000 must also be flagged.
+
+3. High-Risk Country Rule
+- Transactions involving counterparties located in countries on the FATF blacklist must be blocked.
+
+4. Politically Exposed Person (PEP) Rule
+- If a customer is identified as a PEP, all transactions over $5,000 require human approval.
+
+5. Audit Trail
+- All flagged or blocked transactions must be logged with a timestamp and reason for action.
+
+6. Regulatory Citations
+- This policy is based on the Bank Secrecy Act (31 U.S.C. 5311 et seq.) and FATF Recommendations.
+
+---
+
+Example Transaction:
+- Customer: John Doe
+- Amount: $12,500
+- Method: Cash
+- Country: North Korea
+- PEP: Yes
+
+Expected Actions:
+- Flag for review (large cash)
+- Block (high-risk country)
+- Require approval (PEP)
+- Log all actions

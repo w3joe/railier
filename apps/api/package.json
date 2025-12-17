@@ -1,0 +1,10 @@
+{
+  "name": "@railier/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node run-uvicorn.js",
+    "build": "echo 'FastAPI backend - no build step required'",
+    "start": "node run-uvicorn.js"
+  }
+}
