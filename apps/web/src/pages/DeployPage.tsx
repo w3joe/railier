@@ -108,35 +108,69 @@ function DeployPage() {
         duration: Math.floor(Math.random() * 30) + 5,
       });
 
+      // Add connected nodes to queue
+      // For condition blocks, only follow the path if the condition was activated
       const outgoingEdges = edges.filter(e => e.source === currentId);
-      outgoingEdges.forEach(e => {
-        if (!executedBlocks.has(e.target)) {
-          queue.push(e.target);
+
+      if (blockType === 'condition') {
+        // Only follow edges if condition was met
+        if (activated) {
+          outgoingEdges.forEach(e => {
+            if (!executedBlocks.has(e.target)) {
+              queue.push(e.target);
+            }
+          });
         }
-      });
+      } else {
+        // For non-condition blocks, follow all edges
+        outgoingEdges.forEach(e => {
+          if (!executedBlocks.has(e.target)) {
+            queue.push(e.target);
+          }
+        });
+      }
     }
 
-    const hasSalaryKeyword = /salary|compensation|pay|wage/i.test(testInput);
-    const isHR = userRole.toLowerCase().includes('hr');
+    // Determine final decision based on executed action blocks
+    let finalDecision: 'allow' | 'block' | 'warn' | 'require_approval' | null = null;
+    let finalReason = '';
 
-    // Determine decision based on mock logic (replace with actual graph traversal result if available)
-    // For demo purposes, we stick to the salary/HR logic if present in graph
-    let decision: 'allow' | 'block' | 'warn' | 'require_approval' = 'allow';
-    let reason = 'Request passed all guardrail checks';
+    // Find the first activated action block to determine the decision
+    for (const trace of mockTrace) {
+      if (trace.blockType === 'action' && trace.activated) {
+        const actionNode = nodes.find(n => n.id === trace.blockId);
+        if (actionNode) {
+          const templateId = (actionNode.data as Record<string, unknown>).templateId as string;
+          const config = (actionNode.data as Record<string, unknown>).config as Record<string, unknown>;
 
-    // Simple heuristic to match the demo guardrail logic
-    if (nodes.some(n => (n.data as any).templateId === 'condition-contains') && 
-        nodes.some(n => (n.data as any).templateId === 'condition-role')) {
-        if (hasSalaryKeyword && !isHR) {
-            decision = 'block';
-            reason = 'Request contains salary-related keywords and user is not in HR';
+          if (templateId?.includes('block')) {
+            finalDecision = 'block';
+            finalReason = (config?.message as string) || 'Request blocked by guardrail';
+            break;
+          } else if (templateId?.includes('warn')) {
+            finalDecision = 'warn';
+            finalReason = (config?.warning as string) || 'Warning issued by guardrail';
+          } else if (templateId?.includes('approval')) {
+            finalDecision = 'require_approval';
+            finalReason = 'Request requires human approval';
+          } else if (templateId?.includes('allow')) {
+            finalDecision = 'allow';
+            finalReason = 'Request allowed by guardrail';
+          }
         }
+      }
+    }
+
+    // If no action block was reached, default to block
+    if (finalDecision === null) {
+      finalDecision = 'block';
+      finalReason = 'No action blocks reached - default block';
     }
 
     const mockResult: EvaluationResult = {
       guardrailId: 'deployed',
-      decision,
-      reason,
+      decision: finalDecision,
+      reason: finalReason,
       executionTrace: mockTrace,
       totalDuration: mockTrace.reduce((sum, t) => sum + t.duration, 0),
     };
@@ -186,15 +220,19 @@ function DeployPage() {
 
       if (result) {
         let responseContent = '';
-        
+
         if (result.decision === 'allow') {
           // 2. If allowed, call the actual LLM Agent
           const agentResponse = await callAgent(input, selectedRole);
           responseContent = agentResponse.response;
         } else if (result.decision === 'block') {
           responseContent = `❌ **Blocked by Guardrail**\n\n${result.reason}`;
-        } else {
-          responseContent = `⚠️ **${result.decision.toUpperCase()}**\n\n${result.reason}`;
+        } else if (result.decision === 'warn') {
+          // For warnings, call the agent but show warning
+          const agentResponse = await callAgent(input, selectedRole);
+          responseContent = `⚠️ **WARNING**\n\n${result.reason}\n\n---\n\n${agentResponse.response}`;
+        } else if (result.decision === 'require_approval') {
+          responseContent = `🔒 **REQUIRES APPROVAL**\n\n${result.reason}\n\nThis request needs human approval before proceeding.`;
         }
 
         const assistantMessage: Message = {

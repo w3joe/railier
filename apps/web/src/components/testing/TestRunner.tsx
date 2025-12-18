@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState } from "react";
 import {
   Play,
   Loader2,
@@ -9,9 +9,8 @@ import {
   AlertTriangle,
   Link2Off,
   X,
-  Send,
-  User,
   Shield,
+  UserCheck,
 } from "lucide-react";
 import { useStore } from "../../store";
 import { cn } from "../../lib/utils";
@@ -19,14 +18,6 @@ import type { EvaluationResult, BlockType } from "@railier/shared";
 
 interface TestRunnerProps {
   isOpen: boolean;
-}
-
-interface Message {
-  id: string;
-  role: "user" | "assistant" | "system";
-  content: string;
-  timestamp: number;
-  status?: "allowed" | "blocked" | "flagged";
 }
 
 function TestRunner({ isOpen }: TestRunnerProps) {
@@ -39,23 +30,12 @@ function TestRunner({ isOpen }: TestRunnerProps) {
     setIsEvaluating,
     nodes,
     edges,
-    guardrailId,
     toggleTestRunner,
   } = useStore();
 
   const [userRole, setUserRole] = useState("");
   const [expandedTrace, setExpandedTrace] = useState(true);
   const [validationError, setValidationError] = useState<string | null>(null);
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<"user" | "system">("user");
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
 
   // Validate that blocks are properly connected
   const validateConnections = (): { valid: boolean; error?: string } => {
@@ -130,23 +110,10 @@ function TestRunner({ isOpen }: TestRunnerProps) {
     setTestResult(null);
 
     try {
-      // If we have a guardrail ID, call the API
-      if (guardrailId) {
-        const response = await fetch(
-          `/api/guardrails/${guardrailId}/evaluate`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              message: testInput,
-              userRole: userRole || undefined,
-            }),
-          }
-        );
-        const data = await response.json();
-        setTestResult(data.result);
-      } else {
-        // Mock evaluation for demo purposes - now follows the actual connections
+      // Always use client-side evaluation for now
+      // TODO: Call backend API when guardrail is deployed to server
+      {
+        // Mock evaluation - follows the actual graph connections
         await new Promise((resolve) => setTimeout(resolve, 1000));
 
         // Build execution trace following actual connections
@@ -216,27 +183,68 @@ function TestRunner({ isOpen }: TestRunnerProps) {
           });
 
           // Add connected nodes to queue
+          // For condition blocks, only follow the path if the condition was activated
           const outgoingEdges = edges.filter((e) => e.source === currentId);
-          outgoingEdges.forEach((e) => {
-            if (!executedBlocks.has(e.target)) {
-              queue.push(e.target);
+
+          if (blockType === "condition") {
+            // Only follow edges if condition was met
+            if (activated) {
+              outgoingEdges.forEach((e) => {
+                if (!executedBlocks.has(e.target)) {
+                  queue.push(e.target);
+                }
+              });
             }
-          });
+          } else {
+            // For non-condition blocks, follow all edges
+            outgoingEdges.forEach((e) => {
+              if (!executedBlocks.has(e.target)) {
+                queue.push(e.target);
+              }
+            });
+          }
         }
 
-        // Determine final decision based on action blocks
-        const hasSalaryKeyword = /salary|compensation|pay|wage/i.test(
-          testInput
-        );
-        const isHR = userRole.toLowerCase().includes("hr");
+        // Determine final decision based on executed action blocks
+        let finalDecision: "allow" | "block" | "warn" | "require_approval" | null = null;
+        let finalReason = "";
+
+        // Find the first activated action block to determine the decision
+        for (const trace of mockTrace) {
+          if (trace.blockType === "action" && trace.activated) {
+            const actionNode = nodes.find((n) => n.id === trace.blockId);
+            if (actionNode) {
+              const templateId = (actionNode.data as Record<string, unknown>).templateId as string;
+              const config = (actionNode.data as Record<string, unknown>).config as Record<string, unknown>;
+
+              if (templateId?.includes("block")) {
+                finalDecision = "block";
+                finalReason = (config?.message as string) || "Request blocked by guardrail";
+                break;
+              } else if (templateId?.includes("warn")) {
+                finalDecision = "warn";
+                finalReason = (config?.warning as string) || "Warning issued by guardrail";
+              } else if (templateId?.includes("approval")) {
+                finalDecision = "require_approval";
+                finalReason = "Request requires human approval";
+              } else if (templateId?.includes("allow")) {
+                finalDecision = "allow";
+                finalReason = "Request allowed by guardrail";
+              }
+            }
+          }
+        }
+
+        // If no action block was reached, default to block
+        if (finalDecision === null) {
+          finalDecision = "block";
+          finalReason = "No action blocks reached - default block";
+        }
 
         const mockResult: EvaluationResult = {
           guardrailId: "demo",
-          decision: hasSalaryKeyword && !isHR ? "block" : "allow",
-          reason:
-            hasSalaryKeyword && !isHR
-              ? "Request contains salary-related keywords and user is not in HR"
-              : "Request passed all guardrail checks",
+          decision: finalDecision,
+          reason: finalReason,
           executionTrace: mockTrace,
           totalDuration: mockTrace.reduce((sum, t) => sum + t.duration, 0),
         };
@@ -259,77 +267,40 @@ function TestRunner({ isOpen }: TestRunnerProps) {
 
   if (!isOpen) return null;
 
-  const handleSend = async () => {
-    if (!input.trim()) return;
-
-    const newMessage: Message = {
-      id: Date.now().toString(),
-      role: selectedRole,
-      content: input,
-      timestamp: Date.now(),
-    };
-
-    setMessages((prev) => [...prev, newMessage]);
-    setInput("");
-    setIsLoading(true);
-
-    // Simulate processing
-    setTimeout(() => {
-      setIsLoading(false);
-      const response: Message = {
-        id: (Date.now() + 1).toString(),
-        role: "assistant",
-        content: "This is a simulated response from the guardrail system.",
-        timestamp: Date.now(),
-        status: "allowed",
-      };
-      setMessages((prev) => [...prev, response]);
-    }, 1000);
-  };
-
   return (
-    <div className="fixed inset-0 z-40 bg-[var(--bg-primary)]/95 backdrop-blur-sm flex flex-col">
-      {/* Header */}
-      <div className="h-16 border-b border-[var(--border-color)] flex items-center justify-between px-6 bg-[var(--bg-secondary)]">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)]/20 flex items-center justify-center">
-            <Shield className="w-5 h-5 text-[var(--accent-primary)]" />
-          </div>
-          <div>
-            <h2 className="font-semibold text-[var(--text-primary)]">
-              Test Playground
-            </h2>
-            <p className="text-xs text-[var(--text-secondary)]">
-              Simulate guardrail execution
-            </p>
-          </div>
-        </div>
-        <button
-          onClick={toggleTestRunner}
-          className="p-2 hover:bg-[var(--bg-elevated)] rounded-lg transition-colors"
-        >
-          <X className="w-5 h-5 text-[var(--text-secondary)]" />
-        </button>
-      </div>
+    <>
+      {/* Backdrop */}
+      <div
+        className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm animate-fade-in"
+        onClick={toggleTestRunner}
+      />
 
-      <div className="h-full flex flex-col">
+      {/* Slide-out Panel */}
+      <div className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-2xl bg-[var(--bg-primary)] border-l border-[var(--border-color)] shadow-2xl flex flex-col animate-slide-in-right">
         {/* Header */}
-        <div className="p-3 sm:p-4 border-b border-[var(--border-color)] flex items-center gap-2 sm:gap-3 bg-[var(--bg-primary)]">
-          <h3 className="text-sm sm:text-base font-semibold text-[var(--text-primary)]">
-            Test Runner
-          </h3>
-          <span className="text-xs text-[var(--text-muted)]">
-            {nodes.length} blocks • {edges.length} connections
-          </span>
+        <div className="h-16 border-b border-[var(--border-color)] flex items-center justify-between px-6 bg-[var(--bg-secondary)] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[var(--accent-primary)]/20 flex items-center justify-center">
+              <Shield className="w-5 h-5 text-[var(--accent-primary)]" />
+            </div>
+            <div>
+              <h2 className="font-semibold text-[var(--text-primary)]">
+                Test Playground
+              </h2>
+              <p className="text-xs text-[var(--text-secondary)]">
+                Simulate guardrail execution
+              </p>
+            </div>
+          </div>
           <button
             onClick={toggleTestRunner}
-            className="ml-auto p-2 rounded-lg hover:bg-[var(--bg-tertiary)] transition-all hover:shadow-sm"
-            title="Close Test Runner"
+            className="p-2 hover:bg-[var(--bg-elevated)] rounded-lg transition-colors"
           >
-            <X className="w-4 h-4 text-[var(--text-muted)]" />
+            <X className="w-5 h-5 text-[var(--text-secondary)]" />
           </button>
         </div>
 
+        {/* Content */}
         <div className="flex-1 flex flex-col overflow-hidden">
           {/* Input section */}
           <div className="px-8 py-6 border-b border-[var(--border-color)] space-y-4">
@@ -416,8 +387,12 @@ function TestRunner({ isOpen }: TestRunnerProps) {
                     <div className="flex items-center gap-2">
                       {testResult.decision === "allow" ? (
                         <CheckCircle className="w-6 h-6 flex-shrink-0" />
-                      ) : (
+                      ) : testResult.decision === "block" ? (
                         <XCircle className="w-6 h-6 flex-shrink-0" />
+                      ) : testResult.decision === "warn" ? (
+                        <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+                      ) : (
+                        <UserCheck className="w-6 h-6 flex-shrink-0" />
                       )}
                       <span className="font-bold text-base uppercase tracking-wide">
                         {testResult.decision.replace("_", " ")}
@@ -451,38 +426,43 @@ function TestRunner({ isOpen }: TestRunnerProps) {
 
                   {expandedTrace && (
                     <div className="p-2 space-y-1 border-t border-[var(--border-color)]">
-                      {testResult.executionTrace.map((trace, i) => (
-                        <div
-                          key={trace.blockId}
-                          className={cn(
-                            "flex items-center gap-2 p-2.5 rounded-lg text-xs transition-all",
-                            trace.activated
-                              ? "bg-green-400/10 text-green-400 border border-green-400/20"
-                              : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-transparent"
-                          )}
-                        >
-                          <span className="w-6 h-6 flex items-center justify-center rounded-full bg-black/10 text-xs font-bold">
-                            {i + 1}
-                          </span>
-                          <span className="font-mono text-xs flex-shrink-0">
-                            {trace.blockId}
-                          </span>
-                          <span className="opacity-70 text-xs flex-1 truncate">
-                            {trace.blockType}
-                          </span>
-                          <span className="text-xs opacity-70">
-                            {trace.duration}ms
-                          </span>
+                      {testResult.executionTrace.map((trace, i) => {
+                        const blockNode = nodes.find((n) => n.id === trace.blockId);
+                        const blockName = blockNode ? (blockNode.data as Record<string, unknown>).name as string : trace.blockId;
+
+                        return (
                           <div
+                            key={trace.blockId}
                             className={cn(
-                              "w-2 h-2 rounded-full flex-shrink-0",
+                              "flex items-center gap-2 p-2.5 rounded-lg text-xs transition-all",
                               trace.activated
-                                ? "bg-green-400 shadow-lg shadow-green-400/50"
-                                : "bg-gray-500"
+                                ? "bg-green-400/10 text-green-400 border border-green-400/20"
+                                : "bg-[var(--bg-tertiary)] text-[var(--text-muted)] border border-transparent"
                             )}
-                          />
-                        </div>
-                      ))}
+                          >
+                            <span className="w-6 h-6 flex items-center justify-center rounded-full bg-black/10 text-xs font-bold">
+                              {i + 1}
+                            </span>
+                            <span className="font-medium text-xs flex-1 truncate">
+                              {blockName}
+                            </span>
+                            <span className="opacity-60 text-[10px] uppercase tracking-wider flex-shrink-0">
+                              {trace.blockType}
+                            </span>
+                            <span className="text-xs opacity-70">
+                              {trace.duration}ms
+                            </span>
+                            <div
+                              className={cn(
+                                "w-2 h-2 rounded-full flex-shrink-0",
+                                trace.activated
+                                  ? "bg-green-400 shadow-lg shadow-green-400/50"
+                                  : "bg-gray-500"
+                              )}
+                            />
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
@@ -496,104 +476,7 @@ function TestRunner({ isOpen }: TestRunnerProps) {
           </div>
         </div>
       </div>
-
-      {/* Input Area - Matching AIAssistant Design */}
-      <div
-        className="fixed z-50 transition-all duration-300"
-        style={{
-          bottom: "32px",
-          left: "50%",
-          transform: "translateX(-50%)",
-          width: "100%",
-          maxWidth: "800px",
-          padding: "0 16px",
-        }}
-      >
-        <div className="w-full relative group">
-          <div className="absolute -inset-0.5 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] rounded-2xl opacity-20 group-hover:opacity-40 transition duration-500 blur"></div>
-          <div className="relative flex items-center gap-3 px-4 py-3 bg-[var(--bg-secondary)]/90 border border-[var(--border-color)] rounded-2xl shadow-2xl backdrop-blur-xl">
-            {/* Role Selector (Left Icons) */}
-            <div className="relative group/role">
-              <button
-                className="flex items-center gap-2 px-3 py-1.5 rounded-xl hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all border border-transparent hover:border-[var(--border-color)]"
-                title="Select Role"
-              >
-                {selectedRole === "user" ? (
-                  <User className="w-4 h-4" />
-                ) : (
-                  <Shield className="w-4 h-4" />
-                )}
-                <span className="text-xs font-medium capitalize">
-                  {selectedRole}
-                </span>
-                <ChevronDown className="w-3 h-3 opacity-50" />
-              </button>
-
-              {/* Dropdown Menu */}
-              <div className="absolute bottom-full left-0 mb-2 w-32 bg-[var(--bg-elevated)] border border-[var(--border-color)] rounded-xl shadow-xl overflow-hidden opacity-0 invisible group-hover/role:opacity-100 group-hover/role:visible transition-all transform origin-bottom-left">
-                <button
-                  onClick={() => setSelectedRole("user")}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors",
-                    selectedRole === "user" &&
-                      "text-[var(--accent-primary)] bg-[var(--accent-primary)]/5"
-                  )}
-                >
-                  <User className="w-3 h-3" /> User
-                </button>
-                <button
-                  onClick={() => setSelectedRole("system")}
-                  className={cn(
-                    "w-full flex items-center gap-2 px-3 py-2 text-xs hover:bg-[var(--bg-tertiary)] transition-colors",
-                    selectedRole === "system" &&
-                      "text-[var(--accent-primary)] bg-[var(--accent-primary)]/5"
-                  )}
-                >
-                  <Shield className="w-3 h-3" /> System
-                </button>
-              </div>
-            </div>
-
-            {/* Divider */}
-            <div className="w-px h-6 bg-[var(--border-color)] mx-1" />
-
-            {/* Text input */}
-            <input
-              type="text"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSend();
-                }
-              }}
-              placeholder={`Type a message as ${selectedRole}...`}
-              className="flex-1 bg-transparent border-none outline-none text-sm sm:text-base text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-              autoFocus
-            />
-
-            {/* Submit button */}
-            <button
-              onClick={handleSend}
-              disabled={isLoading || !input.trim()}
-              className={cn(
-                "flex items-center justify-center w-9 h-9 rounded-xl transition-all shrink-0",
-                input.trim() && !isLoading
-                  ? "bg-[var(--accent-primary)] text-white shadow-lg shadow-[var(--accent-primary)]/25 hover:shadow-[var(--accent-primary)]/40 hover:scale-105"
-                  : "bg-[var(--bg-elevated)] text-[var(--text-muted)]"
-              )}
-            >
-              {isLoading ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-4 h-4 ml-0.5" />
-              )}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
+    </>
   );
 }
 
