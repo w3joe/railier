@@ -2,12 +2,10 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Play,
-  Upload,
   Trash2,
   Undo2,
   Redo2,
   CheckCircle,
-  XCircle,
   Loader2,
   Save as SaveIcon,
   Rocket,
@@ -30,33 +28,8 @@ function Header() {
   } = useStore();
 
   const [isSaving, setIsSaving] = useState(false);
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deployStatus, setDeployStatus] = useState<
-    "idle" | "success" | "error"
-  >("idle");
   const [message, setMessage] = useState<string | null>(null);
   const [showSaveTooltip, setShowSaveTooltip] = useState(false);
-
-  const getGuardrailPayload = () => ({
-    name: guardrailName,
-    description: "",
-    blocks: nodes.map((n) => ({
-      id: n.id,
-      type: n.data.type,
-      name: n.data.name,
-      category: n.data.category,
-      config: n.data.config,
-      position: n.position,
-    })),
-    connections: edges.map((e) => ({
-      id: e.id,
-      sourceBlockId: e.source,
-      sourceHandle: e.sourceHandle,
-      targetBlockId: e.target,
-      targetHandle: e.targetHandle,
-      type: "sequential",
-    })),
-  });
 
   const saveGuardrail = async (): Promise<string | null> => {
     if (nodes.length === 0) return null;
@@ -91,69 +64,6 @@ function Header() {
       return null;
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleSave = async (): Promise<string | null> => {
-    // Save guardrail to API
-    setIsSaving(true);
-    try {
-      let response: Response;
-      let savedId = guardrailId;
-
-      if (guardrailId) {
-        // Update existing guardrail
-        response = await fetch(`/api/guardrails/${guardrailId}`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(getGuardrailPayload()),
-        });
-      } else {
-        // Create new guardrail
-        response = await fetch("/api/guardrails", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(getGuardrailPayload()),
-        });
-      }
-
-      if (response.ok) {
-        const data = await response.json();
-        savedId = data.id;
-        if (!guardrailId && savedId) {
-          setGuardrail(savedId, guardrailName, "");
-        }
-        console.log("Guardrail saved!");
-        return savedId;
-      }
-      return null;
-    } catch (error) {
-      console.error("Failed to save:", error);
-      return null;
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const deployGuardrail = async () => {
-    setIsDeploying(true);
-    try {
-      let id = guardrailId;
-      if (!id) {
-        id = await saveGuardrail();
-      }
-      if (!id) throw new Error("No guardrail id");
-
-      const updated = guardrailStorage.update(id, { status: "active" });
-      if (!updated) throw new Error("Failed to deploy");
-
-      setMessage(`Deployed (#${id})`);
-      setTimeout(() => setMessage(null), 3000);
-    } catch (e) {
-      setMessage("Failed to deploy");
-      setTimeout(() => setMessage(null), 3000);
-    } finally {
-      setIsDeploying(false);
     }
   };
 
@@ -280,15 +190,11 @@ function Header() {
 
         <button
           onClick={handleDeploy}
-          disabled={isDeploying || isSaving || nodes.length === 0}
+          disabled={isSaving || nodes.length === 0}
           className="btn btn-primary gap-1.5"
           title="Deploy Guardrail"
         >
-          {isDeploying ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Rocket className="w-4 h-4" />
-          )}
+          <Rocket className="w-4 h-4" />
           <span className="hidden sm:inline">Deploy</span>
         </button>
       </div>

@@ -24,7 +24,8 @@ import {
   LucideIcon,
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-import { blockTemplates, type BlockTemplate, useStore } from '../../store';
+import { blockTemplates, useStore } from '../../store';
+import type { BlockTemplate } from '@railier/shared';
 
 // Icon mapping
 const iconMap: Record<string, LucideIcon> = {

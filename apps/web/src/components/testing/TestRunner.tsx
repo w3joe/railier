@@ -11,7 +11,6 @@ import {
   X,
   Send,
   User,
-  Bot,
   Shield,
 } from "lucide-react";
 import { useStore } from "../../store";

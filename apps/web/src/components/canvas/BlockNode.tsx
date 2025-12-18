@@ -57,12 +57,8 @@ interface BlockNodeData {
   description: string;
 }
 
-// Scratch-like notch SVG path
-const NOTCH_WIDTH = 20;
-const NOTCH_HEIGHT = 8;
-
 function BlockNode({ data, selected }: NodeProps) {
-  const blockData = data as BlockNodeData;
+  const blockData = data as unknown as BlockNodeData;
   const { selectNode, selectedNodeId, testResult, updateBlockConfig } =
     useStore();
   const [isEditing, setIsEditing] = useState(false);

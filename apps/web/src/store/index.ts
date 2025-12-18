@@ -347,12 +347,12 @@ export const useStore = create<GuardrailState>()(
       },
 
       onConnect: (connection) => {
-        const newEdge = {
+        const newEdge: Edge = {
           ...connection,
           id: `edge-${Date.now()}`,
           type: "smoothstep",
           animated: true,
-        };
+        } as Edge;
         set({
           edges: addEdge(newEdge, get().edges),
         });
