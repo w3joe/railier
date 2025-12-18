@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Play,
@@ -9,6 +9,7 @@ import {
   Loader2,
   Save as SaveIcon,
   Rocket,
+  Upload,
 } from "lucide-react";
 import { cn } from "../../lib/utils";
 import { useStore } from "../../store";

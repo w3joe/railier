@@ -335,17 +335,136 @@ function AIAssistant({}: AIAssistantProps) {
 
             {/* Import button */}
             <label className="flex items-center justify-center w-9 h-9 rounded-xl cursor-pointer hover:bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-all shrink-0">
-              <Plus className="w-5 h-5" />
+              {isGenerating ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Plus className="w-5 h-5" />
+              )}
               <input
                 type="file"
                 className="hidden"
                 accept=".pdf,.txt,.docx"
-                onChange={(e) => {
-                  // Handle file import
+                disabled={isGenerating}
+                onChange={async (e) => {
                   const file = e.target.files?.[0];
-                  if (file) {
-                    console.log("Importing:", file.name);
-                  }
+                  if (!file) return;
+
+                  setIsGenerating(true);
+                  setGeneratedExplanation(null);
+
+                  // Simulate 10s processing
+                  await new Promise((r) => setTimeout(r, 10000));
+
+                  // Generate AML policy blocks
+                  // 1. Input block
+                  const inputId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "input-message")!,
+                    { x: 100, y: 50 }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 2. Check for large cash transactions (>$10,000)
+                  const cashCheckId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "condition-contains")!,
+                    { x: 300, y: 50 },
+                    {
+                      keywords: ["$10000", "$10,000", "10000", "large cash"],
+                      matchMode: "any",
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 3. Check for high-risk countries (FATF blacklist)
+                  const countryCheckId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "condition-contains")!,
+                    { x: 500, y: 50 },
+                    {
+                      keywords: ["North Korea", "Iran", "Myanmar"],
+                      matchMode: "any",
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 4. Check for PEP (>$5,000)
+                  const pepCheckId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "condition-contains")!,
+                    { x: 700, y: 50 },
+                    {
+                      keywords: ["PEP", "politically exposed", "$5000", "$5,000"],
+                      matchMode: "any",
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 5. Block action for high-risk country
+                  const blockCountryId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "action-block")!,
+                    { x: 500, y: 200 },
+                    {
+                      message:
+                        "Transaction blocked: Counterparty located in FATF blacklisted country",
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 6. Require approval for PEP
+                  const requireApprovalId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "action-approval")!,
+                    { x: 700, y: 200 },
+                    {
+                      approvers: ["compliance@company.com", "aml-team@company.com"],
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 7. Warn for large cash
+                  const warnCashId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "action-warn")!,
+                    { x: 300, y: 200 },
+                    {
+                      warning:
+                        "Large cash transaction flagged for review (>$10,000)",
+                    }
+                  );
+
+                  await new Promise((r) => setTimeout(r, 150));
+
+                  // 8. Allow if all checks pass
+                  const allowId = addBlockWithId(
+                    blockTemplates.find((t) => t.id === "action-allow")!,
+                    { x: 100, y: 200 }
+                  );
+
+                  // Create connections
+                  await new Promise((r) => setTimeout(r, 100));
+                  addConnection(inputId, cashCheckId, "output", "input");
+                  addConnection(inputId, countryCheckId, "output", "input");
+                  addConnection(inputId, pepCheckId, "output", "input");
+                  addConnection(cashCheckId, warnCashId, "true", "input");
+                  addConnection(countryCheckId, blockCountryId, "true", "input");
+                  addConnection(pepCheckId, requireApprovalId, "true", "input");
+                  addConnection(cashCheckId, allowId, "false", "input");
+
+                  setGeneratedExplanation(
+                    `Generated AML Policy Guardrail from "${file.name}":\n\n` +
+                      "✓ **User Message** → **Large Cash Check** ($10,000+)\n" +
+                      "✓ **User Message** → **High-Risk Country Check** (FATF blacklist)\n" +
+                      "✓ **User Message** → **PEP Check** ($5,000+)\n" +
+                      "✓ **Large Cash** (true) → **Warn** (Flag for review)\n" +
+                      "✓ **High-Risk Country** (true) → **Block** (FATF blacklist)\n" +
+                      "✓ **PEP** (true) → **Require Approval**\n" +
+                      "✓ **All checks** (false) → **Allow**\n\n" +
+                      "AML policy blocks generated and connected!"
+                  );
+
+                  setIsGenerating(false);
+                  e.target.value = ""; // Reset file input
                 }}
               />
             </label>

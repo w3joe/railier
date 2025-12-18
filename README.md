@@ -5,6 +5,8 @@
 ![Railier](https://img.shields.io/badge/Railier-v0.1.0-6366f1?style=flat-square)
 ![React](https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react)
 
+[**🚀 Live Demo**](https://railier.netlify.app) • [**📺 Watch Demo Video**](https://youtu.be/a2d6wdC7e7s)
+
 ## Overview
 
 Railier is a no-code platform where anyone can visually design compliance rules, safety policies, and operational guardrails for AI systems. Think **Scratch for AI governance**.
@@ -17,6 +19,8 @@ Railier is a no-code platform where anyone can visually design compliance rules,
 - 🧪 **Test Runner** - Simulate and visualize guardrail execution
 - ⚡ **Real-time Evaluation** - <100ms evaluation time
 - 💾 **Local Storage** - All data stored in your browser
+
+> **Note on Deployment**: The deployed frontend may not work as expected for AI features because Ollama is being used locally. Without a connection to the local backend/Ollama, AI generation will use fallback demo modes.
 
 ## Tech Stack
 
