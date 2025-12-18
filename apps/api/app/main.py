@@ -4,6 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import get_settings
 from app.core.database import init_db
 from app.api import router as api_router
+from app.api.routes import evaluate, ai, agent
 
 settings = get_settings()
 
@@ -37,8 +38,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include API routes
+# Include routers
 app.include_router(api_router, prefix="/api")
+app.include_router(evaluate.router, prefix="/api")
+app.include_router(ai.router, prefix="/api")
+app.include_router(agent.router, prefix="/api")
 
 
 @app.get("/health")
@@ -53,3 +57,7 @@ async def root():
         "docs": "/docs",
         "health": "/health",
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8001)

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Send, User, Bot, Loader2, ArrowLeft, ChevronDown } from 'lucide-react';
+import { Send, User, Bot, Loader2, ArrowLeft, ChevronDown, Shield } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import { useStore } from '../store';
@@ -54,7 +54,7 @@ function DeployPage() {
 
   const runEvaluation = async (testInput: string, userRole: string): Promise<EvaluationResult | null> => {
     // Mock evaluation - same logic as TestRunner
-    await new Promise((resolve) => setTimeout(resolve, 1000));
+    await new Promise((resolve) => setTimeout(resolve, 500));
 
     const executedBlocks = new Set<string>();
     const mockTrace: { blockId: string; blockType: BlockType; result: unknown; activated: boolean; duration: number }[] = [];
@@ -119,17 +119,52 @@ function DeployPage() {
     const hasSalaryKeyword = /salary|compensation|pay|wage/i.test(testInput);
     const isHR = userRole.toLowerCase().includes('hr');
 
+    // Determine decision based on mock logic (replace with actual graph traversal result if available)
+    // For demo purposes, we stick to the salary/HR logic if present in graph
+    let decision: 'allow' | 'block' | 'warn' | 'require_approval' = 'allow';
+    let reason = 'Request passed all guardrail checks';
+
+    // Simple heuristic to match the demo guardrail logic
+    if (nodes.some(n => (n.data as any).templateId === 'condition-contains') && 
+        nodes.some(n => (n.data as any).templateId === 'condition-role')) {
+        if (hasSalaryKeyword && !isHR) {
+            decision = 'block';
+            reason = 'Request contains salary-related keywords and user is not in HR';
+        }
+    }
+
     const mockResult: EvaluationResult = {
       guardrailId: 'deployed',
-      decision: hasSalaryKeyword && !isHR ? 'block' : 'allow',
-      reason: hasSalaryKeyword && !isHR
-        ? 'Request contains salary-related keywords and user is not in HR'
-        : 'Request passed all guardrail checks',
+      decision,
+      reason,
       executionTrace: mockTrace,
       totalDuration: mockTrace.reduce((sum, t) => sum + t.duration, 0),
     };
 
     return mockResult;
+  };
+
+  const callAgent = async (message: string, userRole: string) => {
+    try {
+      const response = await fetch('/api/agent/finance', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message, userRole }),
+      });
+      
+      if (!response.ok) {
+        throw new Error('Agent unavailable');
+      }
+      
+      return await response.json();
+    } catch (error) {
+      console.error('Agent call failed:', error);
+      // Fallback mock response if backend is not running
+      return {
+        response: "I am the Finance Agent (Offline Mode). I can't reach the server right now.",
+        latency_ms: 10
+      };
+    }
   };
 
   const handleSend = async () => {
@@ -146,14 +181,18 @@ function DeployPage() {
     setIsEvaluating(true);
 
     try {
+      // 1. Run Guardrail Evaluation
       const result = await runEvaluation(input, selectedRole);
 
       if (result) {
         let responseContent = '';
+        
         if (result.decision === 'allow') {
-          responseContent = `✅ **Allowed**\n\n${result.reason}`;
+          // 2. If allowed, call the actual LLM Agent
+          const agentResponse = await callAgent(input, selectedRole);
+          responseContent = agentResponse.response;
         } else if (result.decision === 'block') {
-          responseContent = `❌ **Blocked**\n\n${result.reason}`;
+          responseContent = `❌ **Blocked by Guardrail**\n\n${result.reason}`;
         } else {
           responseContent = `⚠️ **${result.decision.toUpperCase()}**\n\n${result.reason}`;
         }
@@ -209,137 +248,159 @@ function DeployPage() {
       </header>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-6">
-        <div className="max-w-4xl mx-auto space-y-6">
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className="flex gap-4 animate-fade-in justify-center"
-            >
-              <div className="flex gap-4 max-w-3xl w-full">
-                {message.role === 'assistant' && (
-                  <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)] flex items-center justify-center flex-shrink-0">
-                    <Bot className="w-5 h-5 text-white" />
-                  </div>
-                )}
-
-                <div className="flex-1 min-w-0">
-                  <div
-                    className={cn(
-                      'rounded-2xl px-5 py-3.5',
-                      message.role === 'user'
-                        ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)]'
-                        : 'bg-transparent text-[var(--text-primary)]'
-                    )}
-                  >
-                    <p className="text-sm leading-relaxed whitespace-pre-wrap">{message.content}</p>
-
-                    {message.result && (
-                      <div className="mt-3 pt-3 border-t border-[var(--border-color)] opacity-60">
-                        <p className="text-xs">Evaluated in {message.result.totalDuration}ms</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {message.role === 'user' && (
-                  <div className="w-8 h-8 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center flex-shrink-0">
-                    <User className="w-5 h-5 text-[var(--text-secondary)]" />
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {isEvaluating && (
-            <div className="flex gap-4 animate-fade-in justify-center">
-              <div className="flex gap-4 max-w-3xl w-full">
-                <div className="w-8 h-8 rounded-full bg-[var(--accent-primary)] flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-5 h-5 text-white" />
-                </div>
-                <div className="flex-1">
-                  <div className="rounded-2xl px-5 py-3.5">
-                    <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
-        </div>
-      </div>
-
-      {/* Input Area */}
-      <div className="border-t border-[var(--border-color)] bg-[var(--bg-secondary)] px-4 py-4">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex justify-center">
-            <div className="max-w-3xl w-full">
-              <div className="flex items-end gap-3 px-4 py-3 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-2xl hover:border-[var(--border-hover)] transition-all shadow-lg">
-                <textarea
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  placeholder="Type your message..."
-                  className="flex-1 bg-transparent border-none outline-none text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none max-h-32"
-                  rows={1}
-                  disabled={isEvaluating}
-                />
-
-                <button
-                  onClick={handleSend}
-                  disabled={!input.trim() || isEvaluating}
-                  className={cn(
-                    'flex items-center justify-center w-9 h-9 rounded-full transition-all shrink-0 shadow-md',
-                    input.trim() && !isEvaluating
-                      ? 'bg-[var(--accent-primary)] hover:opacity-90 hover:shadow-lg'
-                      : 'bg-[var(--bg-elevated)] opacity-50 cursor-not-allowed'
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-5xl mx-auto px-6 py-12 pb-48">
+          <div className="space-y-12">
+            {messages.map((message) => (
+              <div
+                key={message.id}
+                className="flex gap-5 animate-fade-in justify-center"
+              >
+                <div className="flex gap-5 max-w-4xl w-full">
+                  {message.role === 'assistant' && (
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] flex items-center justify-center flex-shrink-0 shadow-lg">
+                      <Bot className="w-5 h-5 text-white" />
+                    </div>
                   )}
-                >
-                  {isEvaluating ? (
-                    <Loader2 className="w-5 h-5 animate-spin text-white" />
-                  ) : (
-                    <Send className={cn('w-5 h-5', input.trim() ? 'text-white' : 'text-[var(--text-muted)]')} />
-                  )}
-                </button>
-              </div>
 
-              {/* Role Selector */}
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-xs text-[var(--text-muted)]">Role:</span>
-                <div className="relative" ref={dropdownRef}>
-                  <button
-                    onClick={() => setShowRoleDropdown(!showRoleDropdown)}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-[var(--bg-tertiary)] border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-elevated)] transition-colors text-sm text-[var(--text-primary)]"
-                  >
-                    {selectedRole}
-                    <ChevronDown className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                  </button>
+                  <div className="flex-1 min-w-0 pt-1">
+                    <div
+                      className={cn(
+                        'rounded-2xl',
+                        message.role === 'user'
+                          ? 'bg-[var(--bg-tertiary)] text-[var(--text-primary)] border border-[var(--border-color)] shadow-sm px-6 py-4'
+                          : 'bg-transparent text-[var(--text-primary)] px-1 py-0'
+                      )}
+                    >
+                      <p className="text-base leading-[1.7] whitespace-pre-wrap">{message.content}</p>
 
-                  {showRoleDropdown && (
-                    <div className="absolute bottom-full mb-2 left-0 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg shadow-xl overflow-hidden animate-fade-in z-50">
-                      {USER_ROLES.map((role) => (
-                        <button
-                          key={role}
-                          onClick={() => {
-                            setSelectedRole(role);
-                            setShowRoleDropdown(false);
-                          }}
-                          className={cn(
-                            'w-full px-4 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] transition-colors',
-                            selectedRole === role
-                              ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)]'
-                              : 'text-[var(--text-primary)]'
-                          )}
-                        >
-                          {role}
-                        </button>
-                      ))}
+                      {message.result && (
+                        <div className="mt-5 pt-4 border-t border-[var(--border-color)]/40 opacity-50">
+                          <p className="text-xs text-[var(--text-muted)]">Evaluated in {message.result.totalDuration}ms</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {message.role === 'user' && (
+                    <div className="w-10 h-10 rounded-full bg-[var(--bg-tertiary)] flex items-center justify-center flex-shrink-0 border border-[var(--border-color)]">
+                      <User className="w-5 h-5 text-[var(--text-secondary)]" />
                     </div>
                   )}
                 </div>
               </div>
+            ))}
+
+            {isEvaluating && (
+              <div className="flex gap-5 animate-fade-in justify-center">
+                <div className="flex gap-5 max-w-4xl w-full">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[var(--accent-primary)] to-[var(--accent-secondary)] flex items-center justify-center flex-shrink-0 shadow-lg">
+                    <Bot className="w-5 h-5 text-white" />
+                  </div>
+                  <div className="flex-1 pt-1">
+                    <div className="rounded-2xl px-1 py-0">
+                      <Loader2 className="w-5 h-5 animate-spin text-[var(--text-muted)]" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+      </div>
+
+      {/* Input Area - Floating Centered Design */}
+      <div
+        className="fixed z-50 transition-all duration-300"
+        style={{
+          bottom: "24px",
+          left: "50%",
+          transform: "translateX(-50%)",
+          width: "100%",
+          maxWidth: "768px",
+          padding: "0 20px",
+        }}
+      >
+        <div className="w-full relative group">
+          <div className="absolute -inset-0.5 bg-gradient-to-r from-[var(--accent-primary)] to-[var(--accent-secondary)] rounded-2xl opacity-20 group-hover:opacity-30 transition duration-500 blur"></div>
+          <div className="relative flex items-center gap-3 px-5 py-3.5 bg-[var(--bg-secondary)]/95 border border-[var(--border-color)] rounded-2xl shadow-2xl backdrop-blur-xl">
+            
+            {/* Role Selector (Left) */}
+            <div className="relative" ref={dropdownRef}>
+              <button
+                onClick={() => setShowRoleDropdown(!showRoleDropdown)}
+                className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl hover:bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all border border-transparent hover:border-[var(--border-color)]"
+                title="Select Role"
+              >
+                {selectedRole === 'Admin' || selectedRole === 'Manager' ? (
+                  <Shield className="w-4 h-4" />
+                ) : (
+                  <User className="w-4 h-4" />
+                )}
+                <span className="text-sm font-medium">{selectedRole}</span>
+                <ChevronDown className="w-3.5 h-3.5 opacity-50" />
+              </button>
+
+              {showRoleDropdown && (
+                <div className="absolute bottom-full left-0 mb-3 w-40 bg-[var(--bg-elevated)] border border-[var(--border-color)] rounded-xl shadow-2xl overflow-hidden animate-fade-in z-50">
+                  {USER_ROLES.map((role) => (
+                    <button
+                      key={role}
+                      onClick={() => {
+                        setSelectedRole(role);
+                        setShowRoleDropdown(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-left hover:bg-[var(--bg-tertiary)] transition-colors",
+                        selectedRole === role && "text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 font-medium"
+                      )}
+                    >
+                      {role === 'Admin' || role === 'Manager' ? (
+                        <Shield className="w-3.5 h-3.5" />
+                      ) : (
+                        <User className="w-3.5 h-3.5" />
+                      )}
+                      {role}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Divider */}
+            <div className="w-px h-7 bg-[var(--border-color)]/60" />
+
+            {/* Text input */}
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyPress}
+              placeholder={`Message as ${selectedRole}...`}
+              className="flex-1 bg-transparent border-none outline-none text-[15px] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] py-1"
+              disabled={isEvaluating}
+              autoFocus
+            />
+
+            {/* Submit button */}
+            <button
+              onClick={handleSend}
+              disabled={!input.trim() || isEvaluating}
+              className={cn(
+                "flex items-center justify-center w-10 h-10 rounded-xl transition-all shrink-0",
+                input.trim() && !isEvaluating
+                  ? "bg-[var(--accent-primary)] text-white shadow-lg shadow-[var(--accent-primary)]/30 hover:shadow-[var(--accent-primary)]/50 hover:scale-105 hover:brightness-110"
+                  : "bg-[var(--bg-elevated)] text-[var(--text-muted)] cursor-not-allowed"
+              )}
+            >
+              {isEvaluating ? (
+                <Loader2 className="w-5 h-5 animate-spin" />
+              ) : (
+                <Send className="w-4.5 h-4.5 ml-0.5" />
+              )}
+            </button>
           </div>
         </div>
       </div>
